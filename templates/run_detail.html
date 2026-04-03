@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Run #{{ run.id }} - Website Monitor{% endblock %}
+{% block content %}
+<section class="card">
+  <h2>Run #{{ run.id }}</h2>
+  <div class="detail-grid">
+    <div><span>Website</span><strong>{{ site_label(run.target_url, run.website_display_name) }}</strong></div>
+    <div><span>Target URL</span><strong class="break-word">{{ run.target_url }}</strong></div>
+    <div><span>Trigger</span><strong>{{ run.trigger_type }}</strong></div>
+    <div><span>Status</span><strong><span class="status-pill {{ status_class(run.status) }}">{{ run.status }}</span></strong></div>
+    <div><span>Started</span><strong>{{ run.started_at | fmt_dt }}</strong></div>
+    <div><span>Completed</span><strong>{{ run.completed_at | fmt_dt }}</strong></div>
+    <div><span>HTTP Status</span><strong>{{ run.http_status if run.http_status is not none else "N/A" }}</strong></div>
+    <div><span>Response Time</span><strong>{{ run.response_time_ms if run.response_time_ms is not none else "N/A" }} ms</strong></div>
+    <div><span>Total Scraped Items</span><strong>{{ run.total_items if run.total_items is not none else "N/A" }}</strong></div>
+    <div><span>New Items in Run</span><strong>{{ run.new_items_count }}</strong></div>
+    <div><span>Snapshot Hash</span><strong class="mono break-word">{{ run.snapshot_hash if run.snapshot_hash else "N/A" }}</strong></div>
+  </div>
+  {% if run.error_message %}
+    <article class="error-box">
+      <strong>Error:</strong> {{ run.error_message }}
+    </article>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Items Inserted In This Run</h2>
+  {% if items %}
+    <ol class="item-list ordered">
+      {% for item in items %}
+      <li>
+        <div class="item-meta">
+          <span>Detected: {{ item.detected_at | fmt_dt }}</span>
+          <span>Email sent: {{ "Yes" if item.is_notified else "No" }}</span>
+        </div>
+        <p>{{ item.item_text }}</p>
+      </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <p>This run did not add any new items to the baseline.</p>
+  {% endif %}
+</section>
+{% endblock %}

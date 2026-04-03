@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>{% block title %}Website Monitor{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <div>
+          <h1 class="site-title">Website Monitor</h1>
+          <p class="site-subtitle">24/7 cloud scraping with instant email alerts</p>
+        </div>
+        <nav class="site-nav">
+          <a href="{{ url_for('dashboard') }}">Dashboard</a>
+          <a href="{{ url_for('history') }}">History</a>
+          <a href="{{ url_for('health') }}" target="_blank" rel="noopener">Health JSON</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container main-content">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="flash-stack">
+            {% for category, message in messages %}
+              <article class="flash flash-{{ category }}">{{ message }}</article>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

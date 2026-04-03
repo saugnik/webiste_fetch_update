@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}History - Website Monitor{% endblock %}
+{% block content %}
+<section class="card">
+  <h2>Run History</h2>
+  <p>Total runs: <strong>{{ total_count }}</strong></p>
+  {% if runs %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Website</th>
+          <th>Started</th>
+          <th>Completed</th>
+          <th>Trigger</th>
+          <th>Status</th>
+          <th>HTTP</th>
+          <th>Response (ms)</th>
+          <th>Total items scraped</th>
+          <th>New items</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for run in runs %}
+        <tr>
+          <td><a href="{{ url_for('run_detail', run_id=run.id) }}">#{{ run.id }}</a></td>
+          <td>{{ site_label(run.target_url, run.website_display_name) }}</td>
+          <td>{{ run.started_at | fmt_dt }}</td>
+          <td>{{ run.completed_at | fmt_dt }}</td>
+          <td>{{ run.trigger_type }}</td>
+          <td><span class="status-pill {{ status_class(run.status) }}">{{ run.status }}</span></td>
+          <td>{{ run.http_status if run.http_status is not none else "N/A" }}</td>
+          <td>{{ run.response_time_ms if run.response_time_ms is not none else "N/A" }}</td>
+          <td>{{ run.total_items if run.total_items is not none else "N/A" }}</td>
+          <td>{{ run.new_items_count }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No run history yet.</p>
+  {% endif %}
+
+  <div class="pagination">
+    {% if page > 1 %}
+      <a class="page-link" href="{{ url_for('history', page=page-1) }}">Previous</a>
+    {% endif %}
+    <span>Page {{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}
+      <a class="page-link" href="{{ url_for('history', page=page+1) }}">Next</a>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

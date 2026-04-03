@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Website Monitor{% endblock %}
+{% block content %}
+<section class="grid-cards">
+  <article class="card">
+    <h2>Websites</h2>
+    <p><strong>Total:</strong> {{ stats.total_websites }}</p>
+    <p><strong>Active:</strong> {{ stats.active_websites }}</p>
+    <p><strong>Inactive:</strong> {{ stats.total_websites - stats.active_websites }}</p>
+    <p><strong>With history:</strong> {{ stats.websites_with_history }}</p>
+  </article>
+  <article class="card">
+    <h2>Scheduler</h2>
+    <p><strong>Status:</strong> {{ "Running" if scheduler_running else "Stopped" }}</p>
+    <p><strong>Every:</strong> {{ config.check_interval_minutes }} minute(s)</p>
+    <p><strong>Next run:</strong> {{ next_run_time | fmt_dt }}</p>
+    <p><strong>App uptime:</strong> {{ uptime_text }}</p>
+  </article>
+  <article class="card">
+    <h2>Email Alerts</h2>
+    <p><strong>Configured:</strong> {{ "Yes" if email_configured else "No" }}</p>
+    <p><strong>From:</strong> {{ config.alert_from_email or "N/A" }}</p>
+    <p><strong>To:</strong> {{ (config.alert_to_emails | join(", ")) if config.alert_to_emails else "N/A" }}</p>
+  </article>
+</section>
+
+<section class="card metrics">
+  <h2>System Metrics</h2>
+  <div class="metrics-grid">
+    <div><span>Total checks</span><strong>{{ stats.total_checks }}</strong></div>
+    <div><span>Total errors</span><strong>{{ stats.total_errors }}</strong></div>
+    <div><span>Runs with new content</span><strong>{{ stats.runs_with_new_content }}</strong></div>
+    <div><span>Total unique items seen</span><strong>{{ stats.total_items_seen }}</strong></div>
+    <div><span>Last successful run</span><strong>{{ stats.last_success_at | fmt_dt }}</strong></div>
+  </div>
+</section>
+
+<section class="actions-row">
+  <form action="{{ url_for('run_now') }}" method="post">
+    <button type="submit" class="btn-primary">Run All Active Sites Now</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Add Website</h2>
+  <form action="{{ url_for('add_website') }}" method="post" class="form-grid">
+    <div>
+      <label for="url">Website URL</label>
+      <input id="url" name="url" type="text" placeholder="https://site1.com, https://site2.com/news" required>
+    </div>
+    <div>
+      <label for="display_name">Display Name (optional)</label>
+      <input id="display_name" name="display_name" type="text" placeholder="Example News">
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Add / Reactivate Website</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Monitored Websites</h2>
+  {% if websites %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Website</th>
+          <th>URL</th>
+          <th>Status</th>
+          <th>Added</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for website in websites %}
+        <tr>
+          <td>#{{ website.id }}</td>
+          <td>{{ site_label(website.url, website.display_name) }}</td>
+          <td class="mono break-word"><a href="{{ website.url }}" target="_blank" rel="noopener">{{ website.url }}</a></td>
+          <td>
+            {% if website.is_active %}
+              <span class="status-pill status-success">active</span>
+            {% else %}
+              <span class="status-pill status-skipped">paused</span>
+            {% endif %}
+          </td>
+          <td>{{ website.created_at | fmt_dt }}</td>
+          <td class="table-actions">
+            <form action="{{ url_for('run_site_now', website_id=website.id) }}" method="post">
+              <button type="submit" class="btn-small">Run now</button>
+            </form>
+            <form action="{{ url_for('toggle_website', website_id=website.id) }}" method="post">
+              <button type="submit" class="btn-small secondary">
+                {{ "Pause" if website.is_active else "Enable" }}
+              </button>
+            </form>
+            <form action="{{ url_for('delete_website', website_id=website.id) }}" method="post" onsubmit="return confirm('Delete this website URL and its history?');">
+              <button type="submit" class="btn-small danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No websites yet. Add your first URL above.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Recent Runs</h2>
+  {% if recent_runs %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Website</th>
+          <th>Started</th>
+          <th>Completed</th>
+          <th>Trigger</th>
+          <th>Status</th>
+          <th>HTTP</th>
+          <th>Response (ms)</th>
+          <th>New items</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for run in recent_runs %}
+        <tr>
+          <td><a href="{{ url_for('run_detail', run_id=run.id) }}">#{{ run.id }}</a></td>
+          <td>{{ site_label(run.target_url, run.website_display_name) }}</td>
+          <td>{{ run.started_at | fmt_dt }}</td>
+          <td>{{ run.completed_at | fmt_dt }}</td>
+          <td>{{ run.trigger_type }}</td>
+          <td><span class="status-pill {{ status_class(run.status) }}">{{ run.status }}</span></td>
+          <td>{{ run.http_status if run.http_status is not none else "N/A" }}</td>
+          <td>{{ run.response_time_ms if run.response_time_ms is not none else "N/A" }}</td>
+          <td>{{ run.new_items_count }}</td>
+          <td class="error-cell">{{ run.error_message if run.error_message else "-" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No runs yet. The scheduler will run after you add active websites.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Newest Detected Items</h2>
+  {% if recent_items %}
+  <ul class="item-list">
+    {% for item in recent_items %}
+    <li>
+      <div class="item-meta">
+        <span>{{ site_label(item.target_url, item.website_display_name) }}</span>
+        <span>Run <a href="{{ url_for('run_detail', run_id=item.run_id) }}">#{{ item.run_id }}</a></span>
+        <span>{{ item.detected_at | fmt_dt }}</span>
+      </div>
+      <p>{{ item.item_text }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No detected items yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
