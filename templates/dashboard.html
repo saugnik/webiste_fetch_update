@@ -154,6 +154,7 @@
 
 <section class="card">
   <h2>Newest Detected Items</h2>
+  <p class="section-note">Use the <strong>Source</strong> link on each item to open the exact page where the change was detected.</p>
   {% if recent_items %}
   <ul class="item-list">
     {% for item in recent_items %}
@@ -163,7 +164,16 @@
         <span>Run <a href="{{ url_for('run_detail', run_id=item.run_id) }}">#{{ item.run_id }}</a></span>
         <span>{{ item.detected_at | fmt_dt }}</span>
       </div>
-      <p>{{ item.item_text }}</p>
+      {% if item.item_source_url %}
+      <div class="item-source">
+        Source: <a href="{{ item.item_source_url }}" target="_blank" rel="noopener">{{ item.item_source_url }}</a>
+      </div>
+      {% endif %}
+      <p class="item-preview">{{ item.item_text | preview_item_text(360) }}</p>
+      <details class="item-details">
+        <summary>View full detected text</summary>
+        <div class="item-fulltext">{{ item.item_text | clean_item_text }}</div>
+      </details>
     </li>
     {% endfor %}
   </ul>

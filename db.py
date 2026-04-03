@@ -63,6 +63,7 @@ class Database:
             self._init_postgres_schema()
         else:
             self._init_sqlite_schema()
+        self._ensure_schema_compatibility()
 
     def _init_postgres_schema(self) -> None:
         ddl = [
@@ -100,6 +101,7 @@ class Database:
                 target_url TEXT NOT NULL,
                 item_fingerprint TEXT NOT NULL,
                 item_text TEXT NOT NULL,
+                item_source_url TEXT,
                 detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 is_notified BOOLEAN NOT NULL DEFAULT FALSE,
                 UNIQUE (target_url, item_fingerprint)
@@ -163,6 +165,7 @@ class Database:
                 target_url TEXT NOT NULL,
                 item_fingerprint TEXT NOT NULL,
                 item_text TEXT NOT NULL,
+                item_source_url TEXT,
                 detected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 is_notified INTEGER NOT NULL DEFAULT 0,
                 UNIQUE (target_url, item_fingerprint)
@@ -189,6 +192,26 @@ class Database:
             for statement in ddl:
                 cursor = self._execute(conn, statement)
                 cursor.close()
+
+    def _ensure_schema_compatibility(self) -> None:
+        with self.connection() as conn:
+            if self.is_postgres:
+                cursor = self._execute(
+                    conn,
+                    "ALTER TABLE new_items ADD COLUMN IF NOT EXISTS item_source_url TEXT;",
+                )
+                cursor.close()
+            else:
+                info_cursor = self._execute(conn, "PRAGMA table_info(new_items);")
+                columns = info_cursor.fetchall()
+                info_cursor.close()
+                column_names = {str(row["name"]) for row in columns}
+                if "item_source_url" not in column_names:
+                    alter_cursor = self._execute(
+                        conn,
+                        "ALTER TABLE new_items ADD COLUMN item_source_url TEXT;",
+                    )
+                    alter_cursor.close()
 
     def ping(self) -> None:
         with self.connection() as conn:
@@ -433,9 +456,9 @@ class Database:
         self,
         run_id: int,
         target_url: str,
-        items: list[dict[str, str]],
-    ) -> list[dict[str, str]]:
-        inserted: list[dict[str, str]] = []
+        items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        inserted: list[dict[str, Any]] = []
         with self.connection() as conn:
             for item in items:
                 if self.is_postgres:
@@ -447,9 +470,10 @@ class Database:
                             target_url,
                             item_fingerprint,
                             item_text,
+                            item_source_url,
                             is_notified
                         )
-                        VALUES (%s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s)
                         ON CONFLICT (target_url, item_fingerprint) DO NOTHING
                         RETURNING id;
                         """,
@@ -458,6 +482,7 @@ class Database:
                             target_url,
                             item["fingerprint"],
                             item["text"],
+                            item.get("source_url"),
                             False,
                         ),
                     )
@@ -473,15 +498,17 @@ class Database:
                             target_url,
                             item_fingerprint,
                             item_text,
+                            item_source_url,
                             is_notified
                         )
-                        VALUES (%s, %s, %s, %s, %s);
+                        VALUES (%s, %s, %s, %s, %s, %s);
                         """,
                         (
                             run_id,
                             target_url,
                             item["fingerprint"],
                             item["text"],
+                            item.get("source_url"),
                             0,
                         ),
                     )
@@ -542,7 +569,12 @@ class Database:
                 return None
             return self._row_to_dict(row)
 
-    def get_recent_runs(self, limit: int = 20) -> list[dict[str, Any]]:
+    def get_recent_runs(self, limit: int | None = 20) -> list[dict[str, Any]]:
+        params: tuple[Any, ...] = ()
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = "LIMIT %s"
+            params = (limit,)
         with self.connection() as conn:
             cursor = self._execute(
                 conn,
@@ -554,15 +586,21 @@ class Database:
                 FROM monitor_runs r
                 LEFT JOIN websites w ON w.url = r.target_url
                 ORDER BY r.started_at DESC, r.id DESC
-                LIMIT %s;
-                """,
-                (limit,),
+                """
+                + limit_clause
+                + ";",
+                params,
             )
             rows = cursor.fetchall()
             cursor.close()
             return [self._row_to_dict(row) for row in rows]
 
-    def get_recent_new_items(self, limit: int = 20) -> list[dict[str, Any]]:
+    def get_recent_new_items(self, limit: int | None = 20) -> list[dict[str, Any]]:
+        params: tuple[Any, ...] = ()
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = "LIMIT %s"
+            params = (limit,)
         with self.connection() as conn:
             cursor = self._execute(
                 conn,
@@ -572,6 +610,7 @@ class Database:
                     ni.run_id,
                     ni.target_url,
                     ni.item_text,
+                    ni.item_source_url,
                     ni.detected_at,
                     ni.is_notified,
                     w.id AS website_id,
@@ -579,9 +618,10 @@ class Database:
                 FROM new_items ni
                 LEFT JOIN websites w ON w.url = ni.target_url
                 ORDER BY ni.detected_at DESC, ni.id DESC
-                LIMIT %s;
-                """,
-                (limit,),
+                """
+                + limit_clause
+                + ";",
+                params,
             )
             rows = cursor.fetchall()
             cursor.close()
@@ -613,7 +653,7 @@ class Database:
             cursor = self._execute(
                 conn,
                 """
-                SELECT id, item_text, detected_at, is_notified
+                SELECT id, item_text, item_source_url, detected_at, is_notified
                 FROM new_items
                 WHERE run_id = %s
                 ORDER BY id ASC;

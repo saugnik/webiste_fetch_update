@@ -99,6 +99,12 @@ body {
   font-size: 1.1rem;
 }
 
+.section-note {
+  margin: 0 0 10px;
+  color: #486581;
+  font-size: 0.9rem;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -276,6 +282,43 @@ th {
   color: var(--muted);
   font-size: 0.82rem;
   margin-bottom: 6px;
+}
+
+.item-preview {
+  margin: 0;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.item-source {
+  margin-bottom: 8px;
+  font-size: 0.84rem;
+  color: #486581;
+  word-break: break-word;
+}
+
+.item-details {
+  margin-top: 8px;
+}
+
+.item-details summary {
+  cursor: pointer;
+  color: #1d4ed8;
+  font-size: 0.86rem;
+  user-select: none;
+}
+
+.item-fulltext {
+  margin-top: 8px;
+  border: 1px solid #dbe7f6;
+  background: #f8fbff;
+  border-radius: 8px;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  max-height: 220px;
+  overflow: auto;
 }
 
 .flash-stack {

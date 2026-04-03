@@ -100,7 +100,7 @@ class AppConfig:
                 "REQUEST_USER_AGENT",
                 "WebsiteMonitorBot/1.0 (+https://railway.app/)",
             ).strip(),
-            scheduler_timezone=os.getenv("SCHEDULER_TIMEZONE", "UTC").strip() or "UTC",
+            scheduler_timezone=os.getenv("SCHEDULER_TIMEZONE", "Asia/Kolkata").strip() or "Asia/Kolkata",
             run_on_startup=_as_bool(os.getenv("RUN_ON_STARTUP"), True),
             flask_secret_key=os.getenv("FLASK_SECRET_KEY", "change-this-secret-key"),
             history_page_size=_as_int(os.getenv("HISTORY_PAGE_SIZE"), 30, minimum=5),

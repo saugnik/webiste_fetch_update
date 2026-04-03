@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import html
-from datetime import datetime, timezone
+from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from smtplib import SMTP
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 from config import AppConfig
+
+IST_ZONE = ZoneInfo("Asia/Kolkata")
 
 
 class EmailClient:
@@ -41,7 +44,7 @@ class EmailClient:
         target_url: str,
         website_label: str | None,
     ) -> str:
-        utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        ist_now = datetime.now(IST_ZONE).strftime("%Y-%m-%d %H:%M:%S IST")
         dashboard_link = self.config.dashboard_base_url.rstrip("/")
         history_link = f"{dashboard_link}/run/{run_id}"
         site_label = self._site_label(target_url, website_label)
@@ -49,7 +52,17 @@ class EmailClient:
         rendered_items = []
         for item in new_items[:100]:
             safe_text = html.escape(item["text"])
-            rendered_items.append(f"<li style='margin-bottom:8px; line-height:1.4'>{safe_text}</li>")
+            source_url = (item.get("source_url") or "").strip()
+            if source_url:
+                safe_source = html.escape(source_url)
+                rendered_items.append(
+                    "<li style='margin-bottom:10px; line-height:1.4'>"
+                    f"<div>{safe_text}</div>"
+                    f"<div style='font-size:12px;color:#4b5563'>Source: <a href='{safe_source}'>{safe_source}</a></div>"
+                    "</li>"
+                )
+            else:
+                rendered_items.append(f"<li style='margin-bottom:8px; line-height:1.4'>{safe_text}</li>")
         remaining_count = max(0, len(new_items) - 100)
 
         overflow_html = ""
@@ -67,7 +80,7 @@ class EmailClient:
       <h2 style="margin-top:0;">Website Monitor Alert</h2>
       <p><strong>Website:</strong> {html.escape(site_label)}</p>
       <p><strong>Target URL:</strong> {html.escape(target_url)}</p>
-      <p><strong>Detected at:</strong> {utc_now}</p>
+      <p><strong>Detected at:</strong> {ist_now}</p>
       <p><strong>New items found:</strong> {len(new_items)}</p>
       <p>
         <a href="{html.escape(dashboard_link)}">Open Dashboard</a> |
@@ -104,7 +117,10 @@ class EmailClient:
             "New content:",
         ]
         for idx, item in enumerate(new_items[:100], start=1):
+            source_url = (item.get("source_url") or "").strip()
             lines.append(f"{idx}. {item['text']}")
+            if source_url:
+                lines.append(f"   Source: {source_url}")
         remaining = len(new_items) - 100
         if remaining > 0:
             lines.append(f"...and {remaining} more item(s).")

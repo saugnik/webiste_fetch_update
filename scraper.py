@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import re
 import time
+import warnings
 from dataclasses import dataclass
+from urllib.parse import urljoin
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 
 TEXT_TAGS = (
@@ -55,14 +57,49 @@ def normalize_text(value: str) -> str:
     return compact
 
 
-def extract_text_items(html: str) -> list[str]:
-    soup = BeautifulSoup(html, "html.parser")
+def _extract_source_url(element, base_url: str) -> str | None:
+    href = None
+    if element.name == "a" and element.has_attr("href"):
+        href = element.get("href")
+    else:
+        best_link = None
+        all_links = element.find_all("a", href=True)
+        for link in all_links:
+            link_href = (link.get("href") or "").strip()
+            if not link_href:
+                continue
+            if link_href.startswith("http://") or link_href.startswith("https://"):
+                best_link = link_href
+                break
+            if best_link is None:
+                best_link = link_href
+        href = best_link
+
+    href = (href or "").strip()
+    if not href:
+        return None
+    return urljoin(base_url, href)
+
+
+def _is_noise_text(text: str) -> bool:
+    lowered = text.lower()
+    if "point by" in lowered and "| hide | past |" in lowered:
+        return True
+    if lowered.startswith("hide | past |"):
+        return True
+    return False
+
+
+def extract_text_items(html: str, base_url: str) -> list[dict[str, str | None]]:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", XMLParsedAsHTMLWarning)
+        soup = BeautifulSoup(html, "html.parser")
 
     for element in soup(["script", "style", "noscript", "svg"]):
         element.extract()
 
     unique_seen: set[str] = set()
-    extracted: list[str] = []
+    extracted: list[dict[str, str | None]] = []
 
     for tag_name in TEXT_TAGS:
         for element in soup.find_all(tag_name):
@@ -71,10 +108,12 @@ def extract_text_items(html: str) -> list[str]:
                 continue
             if len(text) < 20:
                 continue
+            if _is_noise_text(text):
+                continue
             if text in unique_seen:
                 continue
             unique_seen.add(text)
-            extracted.append(text)
+            extracted.append({"text": text, "source_url": _extract_source_url(element, base_url)})
             if len(extracted) >= 2000:
                 return extracted
 
@@ -83,7 +122,7 @@ def extract_text_items(html: str) -> list[str]:
 
     fallback_text = normalize_text(soup.get_text(" ", strip=True))
     if fallback_text:
-        return [fallback_text[:2000]]
+        return [{"text": fallback_text[:2000], "source_url": base_url}]
     return []
 
 

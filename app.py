@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import atexit
+import html as html_module
 import logging
 import math
 import os
 import re
 import threading
+import warnings
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse, urlunparse
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
 from apscheduler.triggers.interval import IntervalTrigger
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 
@@ -25,6 +29,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
+IST_ZONE = ZoneInfo("Asia/Kolkata")
 
 
 def format_datetime(value: Any) -> str:
@@ -42,7 +47,27 @@ def format_datetime(value: Any) -> str:
             return raw
     if dt_value.tzinfo is None:
         dt_value = dt_value.replace(tzinfo=timezone.utc)
-    return dt_value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    return dt_value.astimezone(IST_ZONE).strftime("%Y-%m-%d %H:%M:%S IST")
+
+
+def clean_item_text(value: Any) -> str:
+    raw = str(value or "")
+    decoded = html_module.unescape(raw)
+    if "<" in decoded and ">" in decoded:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", MarkupResemblesLocatorWarning)
+            text_only = BeautifulSoup(decoded, "html.parser").get_text(" ", strip=True)
+    else:
+        text_only = decoded
+    return re.sub(r"\s+", " ", text_only).strip()
+
+
+def preview_item_text(value: Any, max_chars: int = 340) -> str:
+    cleaned = clean_item_text(value)
+    if len(cleaned) <= max_chars:
+        return cleaned
+    clipped = cleaned[:max_chars].rsplit(" ", 1)[0].strip()
+    return f"{clipped}..."
 
 
 def site_label(target_url: str | None, website_display_name: Any = None) -> str:
@@ -82,7 +107,7 @@ def to_json_safe(value: Any) -> Any:
     if isinstance(value, datetime):
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc).isoformat()
+        return value.astimezone(IST_ZONE).isoformat()
     if isinstance(value, dict):
         return {key: to_json_safe(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -139,6 +164,8 @@ def create_app() -> Flask:
     scheduler = BackgroundScheduler(timezone=config.scheduler_timezone)
 
     app.jinja_env.filters["fmt_dt"] = format_datetime
+    app.jinja_env.filters["clean_item_text"] = clean_item_text
+    app.jinja_env.filters["preview_item_text"] = preview_item_text
     app.jinja_env.globals["status_class"] = status_class
     app.jinja_env.globals["site_label"] = site_label
 
@@ -186,8 +213,8 @@ def create_app() -> Flask:
     def dashboard():
         stats = db.get_stats()
         latest_run = db.get_latest_run()
-        recent_runs = db.get_recent_runs(limit=20)
-        recent_items = db.get_recent_new_items(limit=25)
+        recent_runs = db.get_recent_runs(limit=None)
+        recent_items = db.get_recent_new_items(limit=None)
         websites = db.get_websites(active_only=None)
         active_websites = [item for item in websites if bool(item.get("is_active"))]
         inactive_websites = [item for item in websites if not bool(item.get("is_active"))]
@@ -420,6 +447,7 @@ def create_app() -> Flask:
         payload = {
             "status": "ok" if db_ok else "degraded",
             "utc_time": datetime.now(timezone.utc).isoformat(),
+            "ist_time": datetime.now(IST_ZONE).isoformat(),
             "scheduler_running": scheduler.running,
             "next_run_time": format_datetime(scheduler.get_job("website_monitor_job").next_run_time)
             if scheduler.get_job("website_monitor_job")

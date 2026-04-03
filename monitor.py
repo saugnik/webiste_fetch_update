@@ -114,22 +114,32 @@ class MonitorService:
             if scrape_result.status_code >= 400:
                 raise RuntimeError(f"Target returned HTTP {scrape_result.status_code}")
 
-            text_items = extract_text_items(scrape_result.html)
-            unique_items: list[dict[str, str]] = []
+            extracted_items = extract_text_items(scrape_result.html, base_url=cleaned_url)
+            unique_items: list[dict[str, Any]] = []
             seen_fingerprints: set[str] = set()
-            for text in text_items:
+            for extracted in extracted_items:
+                text = str(extracted.get("text") or "").strip()
+                source_url = str(extracted.get("source_url") or "").strip() or None
+                if not text:
+                    continue
                 fingerprint = fingerprint_text(text)
                 if fingerprint in seen_fingerprints:
                     continue
                 seen_fingerprints.add(fingerprint)
-                unique_items.append({"fingerprint": fingerprint, "text": text})
+                unique_items.append(
+                    {
+                        "fingerprint": fingerprint,
+                        "text": text,
+                        "source_url": source_url,
+                    }
+                )
 
             inserted_items = self.db.insert_new_items(
                 run_id=run_id,
                 target_url=cleaned_url,
                 items=unique_items,
             )
-            snapshot_hash = compute_snapshot_hash(text_items)
+            snapshot_hash = compute_snapshot_hash([item["text"] for item in unique_items])
 
             if not has_existing_baseline:
                 new_items_for_alert: list[dict[str, str]] = []
@@ -144,7 +154,7 @@ class MonitorService:
                 http_status=scrape_result.status_code,
                 response_time_ms=scrape_result.response_time_ms,
                 snapshot_hash=snapshot_hash,
-                total_items=len(text_items),
+                total_items=len(unique_items),
                 new_items_count=len(new_items_for_alert),
                 raw_content_length=scrape_result.content_length,
                 error_message=None,

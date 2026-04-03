@@ -33,7 +33,16 @@
           <span>Detected: {{ item.detected_at | fmt_dt }}</span>
           <span>Email sent: {{ "Yes" if item.is_notified else "No" }}</span>
         </div>
-        <p>{{ item.item_text }}</p>
+        {% if item.item_source_url %}
+          <div class="item-source">
+            Source: <a href="{{ item.item_source_url }}" target="_blank" rel="noopener">{{ item.item_source_url }}</a>
+          </div>
+        {% endif %}
+        <p class="item-preview">{{ item.item_text | preview_item_text(420) }}</p>
+        <details class="item-details">
+          <summary>View full detected text</summary>
+          <div class="item-fulltext">{{ item.item_text | clean_item_text }}</div>
+        </details>
       </li>
       {% endfor %}
     </ol>
