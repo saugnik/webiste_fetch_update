@@ -14,3 +14,21 @@ dist/
 # Local sqlite fallback
 data/
 *.db
+
+# Temp diagnostic scripts & output files
+check_db.py
+check_errors.py
+check_runs.py
+check_state.py
+check_updates.py
+diagnose_email.py
+disable_broken_sites.py
+reset_data.py
+reset_out.txt
+diag2.txt
+diag_out.txt
+err_out.txt
+dis_out.txt
+out.txt
+state_out.txt
+page.html

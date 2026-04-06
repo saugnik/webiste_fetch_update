@@ -5,9 +5,15 @@ import re
 import time
 import warnings
 from dataclasses import dataclass
+import io
 from urllib.parse import urljoin
 
 import requests
+
+try:
+    from pypdf import PdfReader  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    PdfReader = None
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 
@@ -33,23 +39,62 @@ class ScrapeResult:
     status_code: int
     response_time_ms: int
     content_length: int
+    content_type: str
+
+
+def _extract_pdf_text(content: bytes, max_pages: int = 25) -> str:
+    if PdfReader is None:
+        return ""
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        pages = reader.pages[:max_pages]
+        extracted = []
+        for page in pages:
+            page_text = page.extract_text() or ""
+            if page_text:
+                extracted.append(page_text)
+        return "\n".join(extracted).strip()
+    except Exception:
+        return ""
 
 
 def fetch_page(url: str, timeout_seconds: int, user_agent: str) -> ScrapeResult:
     headers = {
-        "User-Agent": user_agent,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/123.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
     }
     start = time.perf_counter()
-    response = requests.get(url, headers=headers, timeout=timeout_seconds)
+    try:
+        response = requests.get(url, headers=headers, timeout=timeout_seconds, verify=True)
+    except requests.exceptions.SSLError:
+        # Retry without SSL verification for sites with expired/invalid certificates
+        warnings.warn(f"SSL verification failed for {url}, retrying without verification.", stacklevel=2)
+        response = requests.get(url, headers=headers, timeout=timeout_seconds, verify=False)
     elapsed_ms = int((time.perf_counter() - start) * 1000)
+    content_type = (response.headers.get("content-type") or "").lower()
+    content = response.content or b""
+
+    html_text = response.text
+    if "application/pdf" in content_type or url.lower().endswith(".pdf"):
+        pdf_text = _extract_pdf_text(content)
+        if pdf_text:
+            html_text = pdf_text
     return ScrapeResult(
-        html=response.text,
+        html=html_text,
         status_code=response.status_code,
         response_time_ms=elapsed_ms,
-        content_length=len(response.content),
+        content_length=len(content),
+        content_type=content_type,
     )
+
 
 
 def normalize_text(value: str) -> str:

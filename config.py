@@ -68,10 +68,16 @@ class AppConfig:
     smtp_use_tls: bool
     alert_from_email: str
     alert_to_emails: list[str]
+    auth_fixed_username: str
+    auth_fixed_password: str
 
     @property
     def is_postgres(self) -> bool:
         return bool(self.database_url)
+
+    @property
+    def fixed_auth_enabled(self) -> bool:
+        return bool(self.auth_fixed_username and self.auth_fixed_password)
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -114,4 +120,6 @@ class AppConfig:
             smtp_use_tls=_as_bool(os.getenv("SMTP_USE_TLS"), True),
             alert_from_email=alert_from_email,
             alert_to_emails=_csv_to_list(os.getenv("ALERT_TO_EMAILS", "")),
+            auth_fixed_username=os.getenv("AUTH_FIXED_USERNAME", "").strip(),
+            auth_fixed_password=os.getenv("AUTH_FIXED_PASSWORD", "").strip(),
         )

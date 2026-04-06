@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Login - Website Monitor{% endblock %}
+{% block content %}
+<section class="card auth-card">
+  <h2>Sign In</h2>
+  <p class="section-note">
+    {% if fixed_auth_enabled %}
+      Use the fixed username and password configured for this app.
+    {% else %}
+      Use your account email and password to access your dashboard.
+    {% endif %}
+  </p>
+  <form action="{{ url_for('login') }}" method="post" class="auth-form">
+    {% if next_path %}
+      <input type="hidden" name="next" value="{{ next_path }}">
+    {% endif %}
+    {% if fixed_auth_enabled %}
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" value="{{ login_value or '' }}" autocomplete="username" required>
+    {% else %}
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" value="{{ login_value or '' }}" autocomplete="email" required>
+    {% endif %}
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+    <button type="submit" class="btn-primary">Sign In</button>
+  </form>
+  {% if not fixed_auth_enabled %}
+    <p class="auth-switch">
+      New here?
+      <a href="{{ url_for('register', next=next_path) if next_path else url_for('register') }}">Create an account</a>
+    </p>
+  {% endif %}
+</section>
+{% endblock %}

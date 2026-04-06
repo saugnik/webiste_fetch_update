@@ -58,6 +58,7 @@ body {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .site-nav a {
@@ -70,6 +71,29 @@ body {
 }
 
 .site-nav a:hover {
+  background: rgba(219, 234, 254, 0.18);
+}
+
+.nav-user {
+  color: #cbd5e1;
+  font-size: 0.88rem;
+}
+
+.nav-inline-form {
+  margin: 0;
+}
+
+.nav-button {
+  color: #dbeafe;
+  border: 1px solid rgba(219, 234, 254, 0.35);
+  background: transparent;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.nav-button:hover {
   background: rgba(219, 234, 254, 0.18);
 }
 
@@ -427,6 +451,42 @@ th {
   align-items: end;
 }
 
+.auth-card {
+  width: min(520px, 100%);
+  margin: 10px auto 0;
+}
+
+.auth-form {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-form label {
+  font-size: 0.88rem;
+  color: #334e68;
+}
+
+.auth-form input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 0.92rem;
+  background: #fff;
+  color: #102a43;
+}
+
+.auth-form input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+}
+
+.auth-switch {
+  margin: 12px 0 0;
+  font-size: 0.9rem;
+}
+
 .table-actions {
   display: flex;
   gap: 8px;
@@ -452,6 +512,12 @@ th {
 
 .break-word {
   word-break: break-word;
+}
+
+.small-muted {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: #64748b;
 }
 
 a {

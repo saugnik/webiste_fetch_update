@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import functools
 import html as html_module
 import logging
 import math
@@ -9,6 +10,7 @@ import re
 import threading
 import warnings
 from datetime import datetime, timezone
+from hmac import compare_digest
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 from zoneinfo import ZoneInfo
@@ -16,11 +18,15 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.background import BackgroundScheduler
 from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
 from apscheduler.triggers.interval import IntervalTrigger
-from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
+from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import AppConfig
 from db import Database
 from emailer import EmailClient
+from financial_updates import build_latest_financial_summary, is_financial_relevant
+from psu_tev_sources import PSU_TEV_SOURCES
+from tev_updates import build_latest_tev_summary, is_tev_relevant
 from monitor import MonitorService
 
 
@@ -103,6 +109,30 @@ def normalize_website_url(raw_url: str) -> str:
     return normalized
 
 
+def normalize_email(raw_email: str) -> str:
+    return (raw_email or "").strip().lower()
+
+
+def _safe_next_path(raw_next: str | None) -> str | None:
+    if not raw_next:
+        return None
+    candidate = raw_next.strip()
+    if not candidate or not candidate.startswith("/") or candidate.startswith("//"):
+        return None
+    parsed = urlparse(candidate)
+    if parsed.scheme or parsed.netloc:
+        return None
+    return candidate
+
+
+def login_required(view_func):
+    @functools.wraps(view_func)
+    def wrapped_view(*args, **kwargs):
+        return view_func(*args, **kwargs)
+
+    return wrapped_view
+
+
 def to_json_safe(value: Any) -> Any:
     if isinstance(value, datetime):
         if value.tzinfo is None:
@@ -127,6 +157,50 @@ def status_class(status: str) -> str:
     }.get(cleaned, "status-default")
 
 
+def financial_update_class(status: str) -> str:
+    cleaned = (status or "").strip().lower()
+    return {
+        "yes": "status-success",
+        "no": "status-default",
+    }.get(cleaned, "status-default")
+
+
+def financial_category_class(status: str) -> str:
+    cleaned = (status or "").strip().lower()
+    return {
+        "results": "status-success",
+        "tender": "status-baseline",
+        "credit": "status-new-content",
+        "rates": "status-running",
+        "budget": "status-skipped",
+        "general_finance": "status-default",
+        "not_available": "status-default",
+    }.get(cleaned, "status-default")
+
+
+def tev_status_class(status: str) -> str:
+    cleaned = (status or "").strip().lower()
+    return {
+        "open": "status-success",
+        "closed": "status-error",
+        "upcoming": "status-running",
+        "not_specified": "status-default",
+    }.get(cleaned, "status-default")
+
+
+def tev_notice_class(value: str) -> str:
+    cleaned = (value or "").strip().lower()
+    return {
+        "yes": "status-success",
+        "not_clear": "status-default",
+    }.get(cleaned, "status-default")
+
+
+def should_seed_psu_tev() -> bool:
+    raw = os.getenv("AUTO_SEED_PSU_TEV", "true").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def should_start_scheduler() -> bool:
     if os.getenv("DISABLE_SCHEDULER", "").strip().lower() in {"1", "true", "yes", "on"}:
         return False
@@ -149,15 +223,9 @@ def create_app() -> Flask:
     db = Database(config)
     db.init_schema()
 
-    seed_urls: list[str] = []
-    for raw_url in config.seed_target_urls:
-        try:
-            seed_urls.append(normalize_website_url(raw_url))
-        except ValueError:
-            logger.warning("Ignoring invalid seed URL from environment: %s", raw_url)
-    if seed_urls:
-        created_count = db.seed_websites(seed_urls)
-        logger.info("Seeded websites from environment. total=%s new=%s", len(seed_urls), created_count)
+    # URLs are managed exclusively via the dashboard.
+    # ENV seeding and PSU TEV auto-seeding are disabled so startup never
+    # pollutes the DB with stale or wrong URLs.
 
     email_client = EmailClient(config)
     monitor = MonitorService(config=config, db=db, email_client=email_client)
@@ -167,6 +235,10 @@ def create_app() -> Flask:
     app.jinja_env.filters["clean_item_text"] = clean_item_text
     app.jinja_env.filters["preview_item_text"] = preview_item_text
     app.jinja_env.globals["status_class"] = status_class
+    app.jinja_env.globals["financial_update_class"] = financial_update_class
+    app.jinja_env.globals["financial_category_class"] = financial_category_class
+    app.jinja_env.globals["tev_status_class"] = tev_status_class
+    app.jinja_env.globals["tev_notice_class"] = tev_notice_class
     app.jinja_env.globals["site_label"] = site_label
 
     app.extensions["monitor_config"] = config
@@ -175,9 +247,36 @@ def create_app() -> Flask:
     app.extensions["monitor_scheduler"] = scheduler
     app.extensions["monitor_email_client"] = email_client
 
+    @app.before_request
+    def load_current_user() -> None:
+        g.current_user = None
+
+    @app.context_processor
+    def inject_template_globals() -> dict[str, Any]:
+        return {
+            "current_user": None,
+            "fixed_auth_enabled": False,
+        }
+
     def run_all_active_sites(trigger_type: str) -> dict[str, Any]:
         active_sites = db.get_websites(active_only=True)
         return monitor.run_all_sites(websites=active_sites, trigger_type=trigger_type)
+
+    @app.route("/auth/register", methods=["GET", "POST"])
+    def register():
+        return redirect(url_for("dashboard"))
+
+    @app.route("/auth/login", methods=["GET", "POST"])
+    def login():
+        requested_next = _safe_next_path(request.values.get("next"))
+        if requested_next and requested_next not in {"/auth/login", "/auth/register"}:
+            return redirect(requested_next)
+        return redirect(url_for("dashboard"))
+
+    @app.post("/auth/logout")
+    def logout():
+        session.clear()
+        return redirect(url_for("dashboard"))
 
     def start_scheduler() -> None:
         if scheduler.running:
@@ -210,14 +309,21 @@ def create_app() -> Flask:
             startup_thread.start()
 
     @app.get("/")
+    @login_required
     def dashboard():
         stats = db.get_stats()
         latest_run = db.get_latest_run()
         recent_runs = db.get_recent_runs(limit=None)
-        recent_items = db.get_recent_new_items(limit=None)
+        raw_recent_items = db.get_recent_new_items(limit=None)
+        financial_items = [
+            item for item in raw_recent_items if is_financial_relevant(str(item.get("item_text") or ""))
+        ]
+        tev_items = [item for item in raw_recent_items if is_tev_relevant(str(item.get("item_text") or ""))]
         websites = db.get_websites(active_only=None)
         active_websites = [item for item in websites if bool(item.get("is_active"))]
         inactive_websites = [item for item in websites if not bool(item.get("is_active"))]
+        financial_summary = build_latest_financial_summary(websites=websites, recent_items=financial_items)
+        tev_summary = build_latest_tev_summary(websites=websites, recent_items=tev_items)
 
         next_run_time = None
         job = scheduler.get_job("website_monitor_job")
@@ -238,7 +344,10 @@ def create_app() -> Flask:
             config=config,
             latest_run=latest_run,
             recent_runs=recent_runs,
-            recent_items=recent_items,
+            financial_items=financial_items,
+            tev_items=tev_items,
+            financial_summary=financial_summary,
+            tev_summary=tev_summary,
             websites=websites,
             active_websites=active_websites,
             inactive_websites=inactive_websites,
@@ -250,6 +359,7 @@ def create_app() -> Flask:
         )
 
     @app.get("/history")
+    @login_required
     def history():
         requested_page = request.args.get("page", default=1, type=int) or 1
         page = max(1, requested_page)
@@ -269,6 +379,7 @@ def create_app() -> Flask:
         )
 
     @app.get("/run/<int:run_id>")
+    @login_required
     def run_detail(run_id: int):
         run = db.get_run_by_id(run_id)
         if not run:
@@ -282,6 +393,7 @@ def create_app() -> Flask:
         )
 
     @app.post("/websites/add")
+    @login_required
     def add_website():
         raw_url = request.form.get("url", "")
         display_name = request.form.get("display_name", "").strip() or None
@@ -334,6 +446,7 @@ def create_app() -> Flask:
         return redirect(url_for("dashboard"))
 
     @app.post("/websites/<int:website_id>/toggle")
+    @login_required
     def toggle_website(website_id: int):
         website = db.get_website_by_id(website_id)
         if not website:
@@ -353,6 +466,7 @@ def create_app() -> Flask:
         return redirect(url_for("dashboard"))
 
     @app.post("/websites/<int:website_id>/delete")
+    @login_required
     def delete_website(website_id: int):
         deleted, website, removed_runs = db.delete_website(website_id=website_id, delete_history=True)
         if not deleted or not website:
@@ -366,6 +480,7 @@ def create_app() -> Flask:
         return redirect(url_for("dashboard"))
 
     @app.post("/websites/<int:website_id>/run-now")
+    @login_required
     def run_site_now(website_id: int):
         website = db.get_website_by_id(website_id)
         if not website:
@@ -397,6 +512,7 @@ def create_app() -> Flask:
         return redirect(request.referrer or url_for("dashboard"))
 
     @app.post("/run-now")
+    @login_required
     def run_now():
         result = run_all_active_sites(trigger_type="manual_all")
         status = result.get("status", "")
@@ -446,8 +562,8 @@ def create_app() -> Flask:
         active_sites = [site for site in websites if bool(site.get("is_active"))]
         payload = {
             "status": "ok" if db_ok else "degraded",
-            "utc_time": datetime.now(timezone.utc).isoformat(),
             "ist_time": datetime.now(IST_ZONE).isoformat(),
+            "timezone": "Asia/Kolkata",
             "scheduler_running": scheduler.running,
             "next_run_time": format_datetime(scheduler.get_job("website_monitor_job").next_run_time)
             if scheduler.get_job("website_monitor_job")

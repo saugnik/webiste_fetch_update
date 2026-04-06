@@ -2,6 +2,8 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "gunicorn --workers 1 --threads 4 --timeout 120 app:app"
+startCommand = "gunicorn --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT app:app"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
+healthcheckPath = "/health"
+healthcheckTimeout = 30

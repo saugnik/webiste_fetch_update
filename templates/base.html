@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>{% block title %}Website Monitor{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block head_extra %}{% endblock %}
   </head>
   <body>
     <header class="site-header">
@@ -34,5 +35,6 @@
 
       {% block content %}{% endblock %}
     </main>
+    {% block body_scripts %}{% endblock %}
   </body>
 </html>

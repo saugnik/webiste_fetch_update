@@ -68,6 +68,17 @@ class Database:
     def _init_postgres_schema(self) -> None:
         ddl = [
             """
+            CREATE TABLE IF NOT EXISTS users (
+                id BIGSERIAL PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_login_at TIMESTAMPTZ
+            );
+            """,
+            """
             CREATE TABLE IF NOT EXISTS websites (
                 id BIGSERIAL PRIMARY KEY,
                 url TEXT NOT NULL UNIQUE,
@@ -118,6 +129,7 @@ class Database:
                 error_message TEXT
             );
             """,
+            "CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);",
             "CREATE INDEX IF NOT EXISTS idx_websites_active ON websites(is_active);",
             "CREATE INDEX IF NOT EXISTS idx_monitor_runs_started_at ON monitor_runs(started_at DESC);",
             "CREATE INDEX IF NOT EXISTS idx_monitor_runs_target ON monitor_runs(target_url);",
@@ -131,6 +143,17 @@ class Database:
 
     def _init_sqlite_schema(self) -> None:
         ddl = [
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_login_at TEXT
+            );
+            """,
             """
             CREATE TABLE IF NOT EXISTS websites (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,6 +205,7 @@ class Database:
                 error_message TEXT
             );
             """,
+            "CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);",
             "CREATE INDEX IF NOT EXISTS idx_websites_active ON websites(is_active);",
             "CREATE INDEX IF NOT EXISTS idx_monitor_runs_started_at ON monitor_runs(started_at DESC);",
             "CREATE INDEX IF NOT EXISTS idx_monitor_runs_target ON monitor_runs(target_url);",
@@ -217,6 +241,94 @@ class Database:
         with self.connection() as conn:
             cursor = self._execute(conn, "SELECT 1;")
             cursor.fetchone()
+            cursor.close()
+
+    def create_user(self, email: str, password_hash: str) -> dict[str, Any]:
+        cleaned_email = email.strip().lower()
+        if not cleaned_email:
+            raise ValueError("Email is required.")
+        if not password_hash.strip():
+            raise ValueError("Password hash cannot be empty.")
+
+        with self.connection() as conn:
+            existing_cursor = self._execute(
+                conn,
+                "SELECT id FROM users WHERE email = %s LIMIT 1;",
+                (cleaned_email,),
+            )
+            existing = existing_cursor.fetchone()
+            existing_cursor.close()
+            if existing:
+                raise ValueError("An account with this email already exists.")
+
+            if self.is_postgres:
+                insert_cursor = self._execute(
+                    conn,
+                    """
+                    INSERT INTO users (email, password_hash, is_active)
+                    VALUES (%s, %s, %s)
+                    RETURNING *;
+                    """,
+                    (cleaned_email, password_hash, True),
+                )
+                user = self._row_to_dict(insert_cursor.fetchone())
+                insert_cursor.close()
+            else:
+                insert_cursor = self._execute(
+                    conn,
+                    """
+                    INSERT INTO users (email, password_hash, is_active)
+                    VALUES (%s, %s, %s);
+                    """,
+                    (cleaned_email, password_hash, 1),
+                )
+                user_id = int(insert_cursor.lastrowid)
+                insert_cursor.close()
+                fetch_cursor = self._execute(conn, "SELECT * FROM users WHERE id = %s;", (user_id,))
+                user = self._row_to_dict(fetch_cursor.fetchone())
+                fetch_cursor.close()
+            return user
+
+    def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        cleaned_email = email.strip().lower()
+        if not cleaned_email:
+            return None
+        with self.connection() as conn:
+            cursor = self._execute(
+                conn,
+                "SELECT * FROM users WHERE email = %s LIMIT 1;",
+                (cleaned_email,),
+            )
+            row = cursor.fetchone()
+            cursor.close()
+            if not row:
+                return None
+            return self._row_to_dict(row)
+
+    def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
+        with self.connection() as conn:
+            cursor = self._execute(
+                conn,
+                "SELECT * FROM users WHERE id = %s LIMIT 1;",
+                (user_id,),
+            )
+            row = cursor.fetchone()
+            cursor.close()
+            if not row:
+                return None
+            return self._row_to_dict(row)
+
+    def update_user_last_login(self, user_id: int) -> None:
+        with self.connection() as conn:
+            cursor = self._execute(
+                conn,
+                """
+                UPDATE users
+                SET last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s;
+                """,
+                (user_id,),
+            )
             cursor.close()
 
     def add_or_activate_website(self, url: str, display_name: str | None = None) -> tuple[dict[str, Any], bool]:
@@ -516,6 +628,27 @@ class Database:
                         inserted.append(item)
                 cursor.close()
         return inserted
+
+    def get_unnotified_items(self, target_url: str, limit: int | None = 100) -> list[dict[str, Any]]:
+        params: tuple[Any, ...] = (self._bool_param(False), target_url)
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = " LIMIT %s"
+            params = (self._bool_param(False), target_url, limit)
+        with self.connection() as conn:
+            cursor = self._execute(
+                conn,
+                f"""
+                SELECT id, item_text, item_source_url, item_fingerprint
+                FROM new_items
+                WHERE is_notified = %s AND target_url = %s
+                ORDER BY detected_at ASC{limit_clause};
+                """,
+                params,
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+            return [self._row_to_dict(row) for row in rows]
 
     def mark_items_notified(self, target_url: str, fingerprints: list[str]) -> None:
         if not fingerprints:

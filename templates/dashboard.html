@@ -1,6 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Dashboard - Website Monitor{% endblock %}
+
+{% block head_extra %}
+<meta http-equiv="refresh" content="30">
+{% endblock %}
+
 {% block content %}
+<!-- Live refresh bar -->
+<div id="refresh-bar" style="
+  background: linear-gradient(90deg,#16a34a,#22c55e);
+  color:#fff; font-size:12px; font-weight:600;
+  padding:6px 16px; border-radius:8px; margin-bottom:14px;
+  display:flex; align-items:center; justify-content:space-between;
+  letter-spacing:.3px;
+">
+  <span>🔄 Auto-refreshing every 30s &nbsp;·&nbsp; Last loaded: <span id="load-time"></span></span>
+  <span>Next refresh in <span id="countdown" style="font-size:14px;font-weight:700">30</span>s</span>
+</div>
 <section class="grid-cards">
   <article class="card">
     <h2>Websites</h2>
@@ -13,6 +29,7 @@
     <h2>Scheduler</h2>
     <p><strong>Status:</strong> {{ "Running" if scheduler_running else "Stopped" }}</p>
     <p><strong>Every:</strong> {{ config.check_interval_minutes }} minute(s)</p>
+    <p><strong>Timezone:</strong> IST ({{ config.scheduler_timezone }})</p>
     <p><strong>Next run:</strong> {{ next_run_time | fmt_dt }}</p>
     <p><strong>App uptime:</strong> {{ uptime_text }}</p>
   </article>
@@ -111,6 +128,115 @@
 </section>
 
 <section class="card">
+  <h2>Financial Data Snapshot (Website-only)</h2>
+  <p class="section-note">
+    This table is auto-extracted from monitored websites and includes only finance-related updates.
+    Non-financial content is ignored.
+  </p>
+  {% if financial_summary %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Source</th>
+          <th>Financial update</th>
+          <th>Category</th>
+          <th>Key numbers</th>
+          <th>Timeline hint</th>
+          <th>Latest extracted update</th>
+          <th>Reference</th>
+          <th>Detected</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for item in financial_summary %}
+        <tr>
+          <td>
+            <strong>{{ item.source_label }}</strong>
+            <div class="small-muted break-word">{{ item.target_url }}</div>
+          </td>
+          <td><span class="status-pill {{ financial_update_class(item.has_financial_update) }}">{{ item.has_financial_update }}</span></td>
+          <td><span class="status-pill {{ financial_category_class(item.category) }}">{{ item.category }}</span></td>
+          <td class="break-word">
+            {% if item.key_numbers %}
+              {{ item.key_numbers | join(", ") }}
+            {% else %}
+              -
+            {% endif %}
+          </td>
+          <td>{{ item.timeline_hint }}</td>
+          <td class="break-word">{{ item.summary }}</td>
+          <td class="break-word">
+            {% if item.source_url %}
+              <a href="{{ item.source_url }}" target="_blank" rel="noopener">Open source</a>
+            {% elif item.run_id %}
+              <a href="{{ url_for('run_detail', run_id=item.run_id) }}">Open run #{{ item.run_id }}</a>
+            {% else %}
+              -
+            {% endif %}
+          </td>
+          <td>{{ item.detected_at | fmt_dt }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No monitored websites available yet.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>TEV Empanelment Snapshot (PSU)</h2>
+  <p class="section-note">
+    This table highlights TEV/TEVS/LIE empanelment notices detected on monitored websites (including PDFs).
+  </p>
+  {% if tev_summary %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Bank</th>
+          <th>Status</th>
+          <th>Notice</th>
+          <th>Timeline hint</th>
+          <th>Latest extracted update</th>
+          <th>Reference</th>
+          <th>Detected</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for item in tev_summary %}
+        <tr>
+          <td>
+            <strong>{{ item.bank_label }}</strong>
+            <div class="small-muted break-word">{{ item.target_url }}</div>
+          </td>
+          <td><span class="status-pill {{ tev_status_class(item.status) }}">{{ item.status }}</span></td>
+          <td><span class="status-pill {{ tev_notice_class(item.notice_released) }}">{{ item.notice_released }}</span></td>
+          <td>{{ item.timeline_hint }}</td>
+          <td class="break-word">{{ item.summary }}</td>
+          <td class="break-word">
+            {% if item.source_url %}
+              <a href="{{ item.source_url }}" target="_blank" rel="noopener">Open source</a>
+            {% elif item.run_id %}
+              <a href="{{ url_for('run_detail', run_id=item.run_id) }}">Open run #{{ item.run_id }}</a>
+            {% else %}
+              -
+            {% endif %}
+          </td>
+          <td>{{ item.detected_at | fmt_dt }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No monitored websites available yet.</p>
+  {% endif %}
+</section>
+
+<section class="card">
   <h2>Recent Runs</h2>
   {% if recent_runs %}
   <div class="table-wrap">
@@ -153,11 +279,11 @@
 </section>
 
 <section class="card">
-  <h2>Newest Detected Items</h2>
-  <p class="section-note">Use the <strong>Source</strong> link on each item to open the exact page where the change was detected.</p>
-  {% if recent_items %}
+  <h2>Newest Detected Financial Items</h2>
+  <p class="section-note">Only finance-related detected text is shown here.</p>
+  {% if financial_items %}
   <ul class="item-list">
-    {% for item in recent_items %}
+    {% for item in financial_items %}
     <li>
       <div class="item-meta">
         <span>{{ site_label(item.target_url, item.website_display_name) }}</span>
@@ -181,4 +307,60 @@
   <p>No detected items yet.</p>
   {% endif %}
 </section>
+
+<section class="card">
+  <h2>Newest Detected TEV Items</h2>
+  <p class="section-note">Only TEV/TEVS/LIE-related detected text is shown here.</p>
+  {% if tev_items %}
+  <ul class="item-list">
+    {% for item in tev_items %}
+    <li>
+      <div class="item-meta">
+        <span>{{ site_label(item.target_url, item.website_display_name) }}</span>
+        <span>Run <a href="{{ url_for('run_detail', run_id=item.run_id) }}">#{{ item.run_id }}</a></span>
+        <span>{{ item.detected_at | fmt_dt }}</span>
+      </div>
+      {% if item.item_source_url %}
+      <div class="item-source">
+        Source: <a href="{{ item.item_source_url }}" target="_blank" rel="noopener">{{ item.item_source_url }}</a>
+      </div>
+      {% endif %}
+      <p class="item-preview">{{ item.item_text | preview_item_text(360) }}</p>
+      <details class="item-details">
+        <summary>View full detected text</summary>
+        <div class="item-fulltext">{{ item.item_text | clean_item_text }}</div>
+      </details>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No detected TEV items yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block body_scripts %}
+<script>
+  // Show load time
+  const loadTimeEl = document.getElementById('load-time');
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  loadTimeEl.textContent =
+    now.getFullYear() + '-' + pad(now.getMonth()+1) + '-' + pad(now.getDate()) +
+    ' ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+
+  // Countdown
+  let secs = 30;
+  const cd = document.getElementById('countdown');
+  const bar = document.getElementById('refresh-bar');
+  setInterval(() => {
+    secs--;
+    cd.textContent = secs;
+    if (secs <= 5) {
+      bar.style.background = 'linear-gradient(90deg,#d97706,#f59e0b)';
+      cd.style.color = '#fef3c7';
+    }
+    if (secs <= 0) location.reload();
+  }, 1000);
+</script>
 {% endblock %}

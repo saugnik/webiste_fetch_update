@@ -161,7 +161,7 @@ gunicorn --workers 1 --threads 4 --timeout 120 app:app
 | `CHECK_INTERVAL_MINUTES` | No | `15` | Scheduler interval |
 | `REQUEST_TIMEOUT_SECONDS` | No | `30` | HTTP request timeout |
 | `REQUEST_USER_AGENT` | No | monitor UA | Scraper user-agent |
-| `SCHEDULER_TIMEZONE` | No | `UTC` | APScheduler timezone |
+| `SCHEDULER_TIMEZONE` | No | `Asia/Kolkata` | APScheduler timezone |
 | `RUN_ON_STARTUP` | No | `true` | Run all active sites once at boot |
 | `HISTORY_PAGE_SIZE` | No | `30` | Rows per history page |
 | `DASHBOARD_BASE_URL` | No | `http://localhost:5000` | Links in alert email |
